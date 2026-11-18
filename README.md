@@ -17,6 +17,7 @@ Rust vs Bash (fast)     :  14.8x faster (saves  40.92 ms)
 Rust vs Bash (original) :  39.0x faster (saves 112.87 ms)
 
 ```
+*Disclaimer: `scripts/killactive_fast.sh` was written entirely by AI as a quick proof-of-concept to test parallel Bash overhead before rewriting the utility in Rust.*
 
 ## Installation & Usage
 
@@ -37,4 +38,4 @@ bind = $mainMod, Q, exec, ~/.local/bin/ml4w-killactive
 ```
 
 > [!NOTE]
-> The code is currently a bit messy and very much a WIP — expect rough edges and a few `.unwrap()`s here and there.
+> - The Rust code is currently a bit (very) messy and very much a WIP - expect rough edges and a few (many) `.unwrap()`s here and there.
