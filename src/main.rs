@@ -1,14 +1,41 @@
 use std::{
-    fs::read_dir,
-    io::{Read, Write},
+    collections::HashMap,
+    io::{Error, Read, Write},
     os::unix::net::UnixStream,
-    path::PathBuf,
-    vec,
+    path::{Path, PathBuf},
 };
 
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct MonitorLayers<'a> {
+    #[serde(borrow)]
+    levels: HashMap<&'a str, Vec<LayerSurface<'a>>>,
+}
+
+#[derive(Deserialize)]
+struct LayerSurface<'a> {
+    namespace: &'a str,
+    pid: i32,
+}
+
 #[derive(serde::Deserialize)]
-struct ActiveWindow {
-    title: Option<String>,
+#[allow(dead_code)]
+struct ActiveWindow<'a> {
+    title: Option<&'a str>,
+    class: Option<&'a str>,
+    pid: Option<i32>,
+}
+
+fn find_qs_pid(json: &str) -> serde_json::Result<Option<i32>> {
+    let monitors: HashMap<&str, MonitorLayers> = serde_json::from_str(json)?;
+
+    Ok(monitors
+        .values()
+        .flat_map(|mon| mon.levels.values())
+        .flatten()
+        .find(|layer| layer.namespace.contains("quickshell"))
+        .map(|layer| layer.pid))
 }
 
 fn write_qstring(buf: &mut Vec<u8>, text: &str) {
@@ -17,9 +44,7 @@ fn write_qstring(buf: &mut Vec<u8>, text: &str) {
     buf.extend_from_slice(&bytes_len.to_be_bytes());
 
     for el in text {
-        for byte in el.to_be_bytes() {
-            buf.extend_from_slice(&[byte]);
-        }
+        buf.extend_from_slice(&el.to_be_bytes());
     }
 }
 
@@ -35,92 +60,72 @@ fn encode_qs_call(target: &str, method: &str) -> Vec<u8> {
     vector
 }
 
-fn read_qs_bool(stream: &mut UnixStream) -> bool {
-    const TRUE_STR: &[u8] = &[
-        0x05, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, b't', 0x00, b'r', 0x00, b'u', 0x00, b'e',
-    ];
-    const TRUE_BOOL: &[u8] = &[0x02, 0x02, 0x01, 0x01];
+fn hypr_cmd(sock_path: &Path, cmd: &str) -> Result<String, Error> {
+    let mut stream = UnixStream::connect(sock_path)?;
 
-    let mut buf = [0u8; 64];
-    let mut offset = 0;
-
-    while offset < buf.len() {
-        match stream.read(&mut buf[offset..]) {
-            Ok(0) => break,
-            Ok(n) => offset += n,
-            Err(_) => return false,
-        }
-    }
-    println!("{:?}", buf);
-
-    matches!(&buf[..offset], TRUE_STR | TRUE_BOOL)
-}
-
-fn hypr_cmd(sock_path: &PathBuf, cmd: &str) -> String {
-    let mut stream = UnixStream::connect(sock_path).unwrap();
-
-    stream.write_all(cmd.as_bytes()).unwrap();
+    stream.write_all(cmd.as_bytes())?;
     let mut resp = String::new();
-    stream.read_to_string(&mut resp).unwrap();
+    stream.read_to_string(&mut resp)?;
 
-    return resp;
+    Ok(resp)
 }
 
-fn qs_cmd(sock_path: &PathBuf, target: &str, method: &str) -> Option<UnixStream> {
+fn qs_cmd(sock_path: &Path, target: &str, method: &str) -> Option<()> {
     let Ok(mut stream) = UnixStream::connect(sock_path) else {
         return None;
     };
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_millis(50)))
-        .unwrap();
-    stream.write_all(&encode_qs_call(target, method)).unwrap();
 
-    return Some(stream);
+    stream.write_all(&encode_qs_call(target, method)).unwrap();
+    Some(())
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap();
     let hyprland_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap();
-
-    let qs_ipcs = PathBuf::from(runtime.clone()).join("quickshell/by-id");
-    let qs_ipcs: Vec<PathBuf> = read_dir(qs_ipcs)
-        .unwrap()
-        .map(|p| p.unwrap().path().join("ipc.sock"))
-        .collect();
-    for sock_path in &qs_ipcs {
-        for target in ["sidebar", "wallpaper", "calendar"] {
-            let mut stream = qs_cmd(&sock_path, target, "isOpen").unwrap();
-
-            if read_qs_bool(&mut stream) {
-                qs_cmd(&sock_path, target, "close");
-                return;
-            }
-        }
-    }
-
     let path = PathBuf::from(format!("{runtime}/hypr/{hyprland_signature}/.socket.sock"));
 
-    let resp: ActiveWindow = serde_json::from_str(&hypr_cmd(&path, "j/activewindow")).unwrap();
-    if let Some(title) = resp.title {
-        if title.is_empty() || title == "Empty" {
-            return;
+    let binding = hypr_cmd(&path, "j/layers")?;
+    if let Ok(Some(resp)) = find_qs_pid(&binding) {
+        let qs_ipc = PathBuf::from(runtime)
+            .join("quickshell/by-pid")
+            .join(resp.to_string())
+            .join("ipc.sock");
+        for target in ["sidebar", "wallpaper", "calendar"] {
+            qs_cmd(&qs_ipc, target, "close").unwrap();
         }
 
-        match title.as_str() {
+        return Ok(());
+    }
+
+    let binding = hypr_cmd(&path, "j/activewindow")?;
+    let resp: ActiveWindow = serde_json::from_str(&binding)?;
+
+    if let Some(title) = resp.title {
+        if title.is_empty() || title == "Empty" {
+            return Ok(());
+        }
+
+        match title {
             "ML4W Welcome" => {
-                for sock_path in &qs_ipcs {
-                    qs_cmd(&sock_path, "welcome", "toggle");
-                }
+                let qs_ipc = PathBuf::from(runtime)
+                    .join("quickshell/by-pid")
+                    .join(resp.pid.unwrap().to_string())
+                    .join("ipc.sock");
+                qs_cmd(&qs_ipc, "welcome", "toggle").unwrap();
             }
             "ML4W Dotfiles Settings" => {
-                for sock_path in &qs_ipcs {
-                    qs_cmd(&sock_path, "settings", "toggle");
-                }
+                let qs_ipc = PathBuf::from(runtime)
+                    .join("quickshell/by-pid")
+                    .join(resp.pid.unwrap().to_string())
+                    .join("ipc.sock");
+                qs_cmd(&qs_ipc, "settings", "toggle").unwrap();
             }
             _ => {
-                hypr_cmd(&path, "dispatch hl.dsp.window.close()");
-                return;
+                hypr_cmd(&path, "dispatch hl.dsp.window.close()")?;
+                return Ok(());
             }
         }
     }
+
+    Ok(())
 }
