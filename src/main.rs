@@ -86,10 +86,7 @@ fn main() -> Result<(), Error> {
 
     let binding = hypr_cmd(&path, "j/layers")?;
     if let Ok(Some(resp)) = find_qs_pid(&binding) {
-        let qs_ipc = PathBuf::from(runtime)
-            .join("quickshell/by-pid")
-            .join(resp.to_string())
-            .join("ipc.sock");
+        let qs_ipc = PathBuf::from(format!("{runtime}/quickshell/by-pid/{resp}/ipc.sock"));
         for target in ["sidebar", "wallpaper", "calendar"] {
             qs_cmd(&qs_ipc, target, "close").unwrap();
         }
