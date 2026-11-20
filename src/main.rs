@@ -1,6 +1,7 @@
 mod cli;
 
 use cli::*;
+use core::error;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -22,10 +23,8 @@ struct LayerSurface<'a> {
 }
 
 #[derive(serde::Deserialize)]
-#[allow(dead_code)]
 struct ActiveWindow<'a> {
     title: Option<&'a str>,
-    class: Option<&'a str>,
     pid: Option<i32>,
 }
 
@@ -73,19 +72,19 @@ fn hypr_cmd(sock_path: &Path, cmd: &str) -> Result<String, Error> {
     Ok(resp)
 }
 
-fn qs_cmd(sock_path: &Path, target: &str, method: &str) -> Option<()> {
+fn qs_cmd(sock_path: &Path, target: &str, method: &str) -> Result<(), Box<dyn error::Error>> {
     let Ok(mut stream) = UnixStream::connect(sock_path) else {
-        return None;
+        return Ok(());
     };
 
-    stream.write_all(&encode_qs_call(target, method)).unwrap();
-    Some(())
+    stream.write_all(&encode_qs_call(target, method))?;
+    Ok(())
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn error::Error>> {
     let (layers, windows) = parse_args();
-    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap();
-    let hyprland_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap();
+    let runtime = std::env::var("XDG_RUNTIME_DIR")?;
+    let hyprland_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")?;
     let hyprland_ipc = PathBuf::from(format!("{runtime}/hypr/{hyprland_signature}/.socket.sock"));
 
     if !layers.is_empty() {
@@ -93,7 +92,7 @@ fn main() -> Result<(), Error> {
         if let Ok(Some(pid)) = find_qs_pid(&binding) {
             let qs_ipc = PathBuf::from(format!("{}/quickshell/by-pid/{}/ipc.sock", runtime, pid));
             for entity in layers {
-                qs_cmd(&qs_ipc, &entity.target, &entity.method).unwrap();
+                qs_cmd(&qs_ipc, &entity.target, &entity.method)?;
             }
 
             return Ok(());
@@ -108,36 +107,14 @@ fn main() -> Result<(), Error> {
             return Ok(());
         }
         if let Some(entity) = windows.iter().find(|w| w.title == title) {
-            let qs_ipc = PathBuf::from(format!(
-                "{runtime}/quickshell/by-pid/{}/ipc.sock",
-                resp.pid.unwrap()
-            ));
-            let _ = qs_cmd(&qs_ipc, &entity.target, &entity.method);
+            if let Some(pid) = resp.pid {
+                let qs_ipc =
+                    PathBuf::from(format!("{}/quickshell/by-pid/{}/ipc.sock", runtime, pid));
+                let _ = qs_cmd(&qs_ipc, &entity.target, &entity.method);
+            }
         } else {
             hypr_cmd(&hyprland_ipc, "dispatch hl.dsp.window.close()")?;
         }
-
-        //match title {
-        //"ML4W Welcome" => {
-        //let qs_ipc = PathBuf::from(format!(
-        //"{}/quickshell/by-pid/{}/ipc.sock",
-        //runtime,
-        //resp.pid.unwrap()
-        //));
-        //qs_cmd(&qs_ipc, "welcome", "toggle").unwrap();
-        //}
-        //"ML4W Dotfiles Settings" => {
-        //let qs_ipc = PathBuf::from(format!(
-        //"{}/quickshell/by-pid/{}/ipc.sock",
-        //runtime,
-        //resp.pid.unwrap()
-        //));
-        //qs_cmd(&qs_ipc, "settings", "toggle").unwrap();
-        //}
-        //_ => {
-        //hypr_cmd(&hyprland_ipc, "dispatch hl.dsp.window.close()")?;
-        //return Ok(());
-        //}
     }
 
     Ok(())

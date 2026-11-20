@@ -8,21 +8,21 @@ The original shell script has a noticeable lag (~115 ms) from spawning multiple 
 
 ```text
 Benchmark 1: Bash (original)
-  Time (mean ± σ):     109.7 ms ±   1.0 ms    [User: 77.4 ms, System: 33.4 ms]
-  Range (min … max):   107.4 ms … 112.1 ms    50 runs
+  Time (mean ± σ):     111.0 ms ±   1.8 ms    [User: 78.3 ms, System: 33.8 ms]
+  Range (min … max):   108.3 ms … 117.7 ms    50 runs
  
 Benchmark 2: Bash (fast)
-  Time (mean ± σ):      41.8 ms ±   0.4 ms    [User: 75.6 ms, System: 33.3 ms]
-  Range (min … max):    40.9 ms …  42.8 ms    50 runs
+  Time (mean ± σ):      42.2 ms ±   0.5 ms    [User: 75.9 ms, System: 34.2 ms]
+  Range (min … max):    41.4 ms …  44.3 ms    50 runs
  
 Benchmark 3: Rust (binary)
-  Time (mean ± σ):     855.0 µs ± 106.9 µs    [User: 303.7 µs, System: 439.6 µs]
-  Range (min … max):   638.7 µs … 991.3 µs    50 runs
+  Time (mean ± σ):     866.0 µs ± 108.0 µs    [User: 280.4 µs, System: 467.3 µs]
+  Range (min … max):   647.4 µs … 1038.8 µs    50 runs
  
 Summary
   Rust (binary) ran
-   48.90 ± 6.13 times faster than Bash (fast)
-  128.25 ± 16.08 times faster than Bash (original)
+   48.72 ± 6.11 times faster than Bash (fast)
+  128.20 ± 16.12 times faster than Bash (original)
 
 ```
 *Disclaimer: `scripts/killactive_fast.sh` was written entirely by AI as a quick proof-of-concept to test parallel Bash overhead before rewriting the utility in Rust.*
@@ -33,17 +33,25 @@ Summary
 
 ```bash
 cargo build --release
-cp target/release/killactive_rs ~/.local/bin/ml4w-killactive
+cp target/release/ml4w-killactive ~/.local/bin/ml4w-killactive
 
 ```
 
-2. Override the default keybind in `~/.config/hypr/conf/custom.conf` (so ML4W updates won't overwrite it):
+2. Override the default keybind in `.config/hypr/conf/keybindings/default.lua` (The best thing to do is create own `custom.lua` file and use it instead, because the default one can get overridden):
 
-```ini
-unbind = $mainMod, Q
-bind = $mainMod, Q, exec, ~/.local/bin/ml4w-killactive
+```lua
+hl.unbind(mainMod .. " + Q")
+hl.bind(
+	mainMod .. " + Q",
+	hl.dsp.exec_cmd(
+		"~/.config/hypr/scripts/ml4w-killactive -l sidebar:close "
+			.. "-l wallpaper:close "
+			.. "-l calendar:close "
+			.. "-w 'ML4W Welcome:welcome:toggle' "
+			.. "-w 'ML4W Dotfiles Settings:settings:toggle'"
+	),
+	{ description = "Kill active window" }
+)
+
 
 ```
-
-> [!NOTE]
-> - The Rust code is currently a bit (very) messy and very much a WIP - expect rough edges and a few (many) `.unwrap()`s here and there.
