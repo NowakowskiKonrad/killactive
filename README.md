@@ -8,21 +8,21 @@ The original shell script has a noticeable lag (~115 ms) from spawning multiple 
 
 ```text
 Benchmark 1: Bash (original)
-  Time (mean ± σ):     116.5 ms ±   1.7 ms    [User: 81.1 ms, System: 36.4 ms]
-  Range (min … max):   114.3 ms … 125.8 ms    50 runs
+  Time (mean ± σ):     109.7 ms ±   1.0 ms    [User: 77.4 ms, System: 33.4 ms]
+  Range (min … max):   107.4 ms … 112.1 ms    50 runs
  
 Benchmark 2: Bash (fast)
-  Time (mean ± σ):      43.4 ms ±   0.6 ms    [User: 78.3 ms, System: 35.1 ms]
-  Range (min … max):    42.3 ms …  45.2 ms    50 runs
+  Time (mean ± σ):      41.8 ms ±   0.4 ms    [User: 75.6 ms, System: 33.3 ms]
+  Range (min … max):    40.9 ms …  42.8 ms    50 runs
  
 Benchmark 3: Rust (binary)
-  Time (mean ± σ):     894.8 µs ± 117.2 µs    [User: 273.6 µs, System: 496.0 µs]
-  Range (min … max):   670.5 µs … 1122.4 µs    50 runs
+  Time (mean ± σ):     855.0 µs ± 106.9 µs    [User: 303.7 µs, System: 439.6 µs]
+  Range (min … max):   638.7 µs … 991.3 µs    50 runs
  
 Summary
   Rust (binary) ran
-   48.47 ± 6.39 times faster than Bash (fast)
-  130.14 ± 17.15 times faster than Bash (original)
+   48.90 ± 6.13 times faster than Bash (fast)
+  128.25 ± 16.08 times faster than Bash (original)
 
 ```
 *Disclaimer: `scripts/killactive_fast.sh` was written entirely by AI as a quick proof-of-concept to test parallel Bash overhead before rewriting the utility in Rust.*

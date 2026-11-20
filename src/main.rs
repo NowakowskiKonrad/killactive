@@ -1,11 +1,13 @@
+mod cli;
+
+use cli::*;
+use serde::Deserialize;
 use std::{
     collections::HashMap,
     io::{Error, Read, Write},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
 };
-
-use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct MonitorLayers<'a> {
@@ -49,7 +51,8 @@ fn write_qstring(buf: &mut Vec<u8>, text: &str) {
 }
 
 fn encode_qs_call(target: &str, method: &str) -> Vec<u8> {
-    let mut vector = vec![];
+    let cap = 1 + 4 + (target.len() * 2) + 4 + (method.len() * 2) + 4;
+    let mut vector = Vec::with_capacity(cap);
     vector.extend_from_slice(&[0x03]);
     write_qstring(&mut vector, target);
     write_qstring(&mut vector, method);
@@ -80,48 +83,61 @@ fn qs_cmd(sock_path: &Path, target: &str, method: &str) -> Option<()> {
 }
 
 fn main() -> Result<(), Error> {
+    let (layers, windows) = parse_args();
     let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap();
     let hyprland_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap();
-    let path = PathBuf::from(format!("{runtime}/hypr/{hyprland_signature}/.socket.sock"));
+    let hyprland_ipc = PathBuf::from(format!("{runtime}/hypr/{hyprland_signature}/.socket.sock"));
 
-    let binding = hypr_cmd(&path, "j/layers")?;
-    if let Ok(Some(resp)) = find_qs_pid(&binding) {
-        let qs_ipc = PathBuf::from(format!("{runtime}/quickshell/by-pid/{resp}/ipc.sock"));
-        for target in ["sidebar", "wallpaper", "calendar"] {
-            qs_cmd(&qs_ipc, target, "close").unwrap();
+    if !layers.is_empty() {
+        let binding = hypr_cmd(&hyprland_ipc, "j/layers")?;
+        if let Ok(Some(pid)) = find_qs_pid(&binding) {
+            let qs_ipc = PathBuf::from(format!("{}/quickshell/by-pid/{}/ipc.sock", runtime, pid));
+            for entity in layers {
+                qs_cmd(&qs_ipc, &entity.target, &entity.method).unwrap();
+            }
+
+            return Ok(());
         }
-
-        return Ok(());
     }
 
-    let binding = hypr_cmd(&path, "j/activewindow")?;
+    let binding = hypr_cmd(&hyprland_ipc, "j/activewindow")?;
     let resp: ActiveWindow = serde_json::from_str(&binding)?;
 
     if let Some(title) = resp.title {
         if title.is_empty() || title == "Empty" {
             return Ok(());
         }
-
-        match title {
-            "ML4W Welcome" => {
-                let qs_ipc = PathBuf::from(runtime)
-                    .join("quickshell/by-pid")
-                    .join(resp.pid.unwrap().to_string())
-                    .join("ipc.sock");
-                qs_cmd(&qs_ipc, "welcome", "toggle").unwrap();
-            }
-            "ML4W Dotfiles Settings" => {
-                let qs_ipc = PathBuf::from(runtime)
-                    .join("quickshell/by-pid")
-                    .join(resp.pid.unwrap().to_string())
-                    .join("ipc.sock");
-                qs_cmd(&qs_ipc, "settings", "toggle").unwrap();
-            }
-            _ => {
-                hypr_cmd(&path, "dispatch hl.dsp.window.close()")?;
-                return Ok(());
-            }
+        if let Some(entity) = windows.iter().find(|w| w.title == title) {
+            let qs_ipc = PathBuf::from(format!(
+                "{runtime}/quickshell/by-pid/{}/ipc.sock",
+                resp.pid.unwrap()
+            ));
+            let _ = qs_cmd(&qs_ipc, &entity.target, &entity.method);
+        } else {
+            hypr_cmd(&hyprland_ipc, "dispatch hl.dsp.window.close()")?;
         }
+
+        //match title {
+        //"ML4W Welcome" => {
+        //let qs_ipc = PathBuf::from(format!(
+        //"{}/quickshell/by-pid/{}/ipc.sock",
+        //runtime,
+        //resp.pid.unwrap()
+        //));
+        //qs_cmd(&qs_ipc, "welcome", "toggle").unwrap();
+        //}
+        //"ML4W Dotfiles Settings" => {
+        //let qs_ipc = PathBuf::from(format!(
+        //"{}/quickshell/by-pid/{}/ipc.sock",
+        //runtime,
+        //resp.pid.unwrap()
+        //));
+        //qs_cmd(&qs_ipc, "settings", "toggle").unwrap();
+        //}
+        //_ => {
+        //hypr_cmd(&hyprland_ipc, "dispatch hl.dsp.window.close()")?;
+        //return Ok(());
+        //}
     }
 
     Ok(())
