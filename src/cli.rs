@@ -11,13 +11,11 @@ pub struct WindowEntity {
     pub method: String,
 }
 
-#[inline]
 pub fn usage() -> ! {
     eprintln!("Usage: ml4w-killactive [-l target:method] [-w title:target:method]");
     process::exit(1);
 }
 
-#[inline]
 pub fn parse_args() -> (Vec<LayerEntity>, Vec<WindowEntity>) {
     let (mut layers, mut windows) = (Vec::new(), Vec::new());
     let mut args = env::args().skip(1);

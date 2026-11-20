@@ -31,7 +31,6 @@ sleep 0.2
 
 hyperfine \
   --shell=none \
-  --ignore-failure \
   --warmup "$WARMUP" \
   --runs "$RUNS" \
   --command-name "Bash (original)" "$BASH_SCRIPT" \
