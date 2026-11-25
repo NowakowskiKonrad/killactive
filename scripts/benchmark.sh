@@ -3,7 +3,7 @@ set -euo pipefail
 
 BASH_SCRIPT="./scripts/killactive.sh"
 BASH_SCRIPT_FAST="./scripts/killactive_fast.sh"
-RUST_BIN="./target/release/ml4w-killactive"
+RUST_BIN="./target/release/killactive"
 RUST_ARGS=" -l sidebar:close -l wallpaper:close -l calendar:close -w 'ML4W Welcome:welcome:toggle' -w 'ML4W Dotfiles Settings:settings:toggle'"
 
 WARMUP=10
@@ -33,7 +33,9 @@ hyperfine \
   --shell=none \
   --warmup "$WARMUP" \
   --runs "$RUNS" \
+  --export-markdown - \
   --command-name "Bash (original)" "$BASH_SCRIPT" \
   --command-name "Bash (fast)" "$BASH_SCRIPT_FAST" \
-  --command-name "Rust (binary)" "$RUST_BIN $RUST_ARGS"
+  --command-name "Rust (binary)" "$RUST_BIN $RUST_ARGS" \
+  --command-name "Rust (faster binary)" "$RUST_BIN $RUST_ARGS -f"
 

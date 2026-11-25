@@ -1,6 +1,6 @@
-use core::error;
 use serde::Deserialize;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     io::{Error, Read, Write},
     os::unix::net::UnixStream,
@@ -22,7 +22,7 @@ pub struct LayerSurface<'a> {
 
 #[derive(serde::Deserialize)]
 pub struct ActiveWindow<'a> {
-    pub title: Option<&'a str>,
+    pub title: Option<Cow<'a, str>>,
     pub pid: Option<i32>,
 }
 
@@ -38,6 +38,12 @@ pub fn find_qs_pids(json: &str) -> serde_json::Result<Vec<i32>> {
         .collect())
 }
 
+/// Modifies an existing buffer, adding a `QString` in IPC format (4-byte BE size + UTF-16BE).
+///
+/// # How it works
+/// Extends the buffer by 4 placeholder bytes to reserve space for the length,
+/// encodes the string into big-endian UTF-16 directly onto the buffer, and then
+/// backfills those first 4 bytes once the final byte size is known.
 #[allow(clippy::cast_possible_truncation)]
 pub fn write_qstring(buf: &mut Vec<u8>, text: &str) {
     let len_at = buf.len();
@@ -47,16 +53,49 @@ pub fn write_qstring(buf: &mut Vec<u8>, text: &str) {
     buf[len_at..len_at + 4].copy_from_slice(&len.to_be_bytes());
 }
 
+/// Encodes a zero-argument Quickshell IPC call into a binary packet.
+///
+/// Packet layout:
+/// - `1` byte: Call opcode (`0x03`)
+/// - `N` bytes: Target name encoded as a `QString`
+/// - `M` bytes: Method name encoded as a `QString`
+/// - `4` bytes: Argument count (`0` as big-endian `u32`)
+///
+/// # How it works
+/// Pre-calculates the worst-case byte size upfront (`1 + 4 + target*2 + 4 + method*2 + 4`)
+/// so the `Vec` allocates once and never resizes while writing. It pushes the `0x03`
+/// header (qs::io::ipc::comm::StringCallCommand), serializes the target and method strings
+///  via [`write_qstring`], and finishes with four zero bytes to signal an empty argument list.
 pub fn encode_qs_call(target: &str, method: &str) -> Vec<u8> {
     let cap = 1 + 4 + (target.len() * 2) + 4 + (method.len() * 2) + 4;
     let mut vector = Vec::with_capacity(cap);
-    // u8 0x05 | u8 return kind (00 = string, 01 = void observed) | QString
     vector.extend_from_slice(&[0x03]);
     write_qstring(&mut vector, target);
     write_qstring(&mut vector, method);
     vector.extend_from_slice(&0u32.to_be_bytes());
 
     vector
+}
+
+const QS_TRUE_REPLY: [u8; 14] = [
+    0x05, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, b't', 0x00, b'r', 0x00, b'u', 0x00, b'e',
+];
+
+pub fn qs_is_open(sock_path: &Path, target: &str) -> bool {
+    let Ok(mut stream) = UnixStream::connect(sock_path) else {
+        return false;
+    };
+
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(50)));
+    if stream.write_all(&encode_qs_call(target, "isOpen")).is_err() {
+        return false;
+    }
+
+    let mut buf = [0u8; 32];
+    match stream.read(&mut buf) {
+        Ok(n) => buf[..n] == QS_TRUE_REPLY,
+        Err(_) => false,
+    }
 }
 
 pub fn hypr_cmd(sock_path: &Path, cmd: &str) -> Result<String, Error> {
@@ -70,13 +109,12 @@ pub fn hypr_cmd(sock_path: &Path, cmd: &str) -> Result<String, Error> {
     Ok(resp)
 }
 
-pub fn qs_cmd(sock_path: &Path, target: &str, method: &str) -> Result<(), Box<dyn error::Error>> {
+pub fn qs_cmd(sock_path: &Path, target: &str, method: &str) {
     let Ok(mut stream) = UnixStream::connect(sock_path) else {
-        return Ok(());
+        return;
     };
 
-    stream.write_all(&encode_qs_call(target, method))?;
-    Ok(())
+    let _ = stream.write_all(&encode_qs_call(target, method));
 }
 
 #[cfg(test)]
@@ -126,7 +164,7 @@ mod tests {
         // 'é' is one UTF-16 code unit: 0x00E9.
         // '🙂' is two UTF-16 code units: 0xD83D 0xDE42.
         // Total UTF-16BE byte length: 2 + 4 = 6.
-        let _ = write_qstring(&mut buf, "é🙂");
+        write_qstring(&mut buf, "é🙂");
 
         assert_eq!(&buf[0..4], &6u32.to_be_bytes());
         assert_eq!(&buf[4..], &[0x00, 0xe9, 0xd8, 0x3d, 0xde, 0x42,]);
@@ -135,7 +173,7 @@ mod tests {
     #[test]
     fn qstring_empty_has_zero_length() {
         let mut buf = Vec::new();
-        let _ = write_qstring(&mut buf, "");
+        write_qstring(&mut buf, "");
         assert_eq!(buf, vec![0x00, 0x00, 0x00, 0x00]);
     }
 
@@ -180,7 +218,7 @@ mod tests {
         let window: ActiveWindow<'_> =
             serde_json::from_str(r#"{ "title": "", "pid": 123 }"#).unwrap();
 
-        assert_eq!(window.title, Some(""));
+        assert_eq!(window.title, Some(Cow::Borrowed("")));
         assert_eq!(window.pid, Some(123));
     }
 
@@ -189,7 +227,7 @@ mod tests {
         let window: ActiveWindow<'_> =
             serde_json::from_str(r#"{ "title": "Firefox", "pid": 123 }"#).unwrap();
 
-        assert_eq!(window.title, Some("Firefox"));
+        assert_eq!(window.title, Some(Cow::Borrowed("Firefox")));
         assert_eq!(window.pid, Some(123));
     }
 }

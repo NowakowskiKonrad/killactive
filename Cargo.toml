@@ -1,7 +1,8 @@
 [package]
-name = "ml4w-killactive"
+name = "killactive"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

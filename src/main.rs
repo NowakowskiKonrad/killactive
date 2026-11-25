@@ -5,10 +5,10 @@ use cli::parse_args;
 use core::error;
 use std::path::PathBuf;
 
-use crate::ipc::{ActiveWindow, find_qs_pids, hypr_cmd, qs_cmd};
+use crate::ipc::*;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let (layers, windows) = parse_args();
+    let (layers, windows, faster) = parse_args();
     let runtime = std::env::var("XDG_RUNTIME_DIR")?;
     let hyprland_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")?;
     let hyprland_ipc = PathBuf::from(format!("{runtime}/hypr/{hyprland_signature}/.socket.sock"));
@@ -20,14 +20,28 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         {
             pids.sort_unstable();
             pids.dedup();
-            for pid in pids {
-                let qs_ipc = PathBuf::from(format!("{runtime}/quickshell/by-pid/{pid}/ipc.sock"));
-                for entity in &layers {
-                    qs_cmd(&qs_ipc, &entity.target, &entity.method)?;
+            if !faster {
+                for pid in pids {
+                    let qs_ipc =
+                        PathBuf::from(format!("{runtime}/quickshell/by-pid/{pid}/ipc.sock"));
+                    for entity in &layers {
+                        if qs_is_open(&qs_ipc, &entity.target) {
+                            qs_cmd(&qs_ipc, &entity.target, &entity.method);
+                            return Ok(());
+                        }
+                    }
                 }
-            }
+            } else {
+                for pid in pids {
+                    let qs_ipc =
+                        PathBuf::from(format!("{runtime}/quickshell/by-pid/{pid}/ipc.sock"));
+                    for entity in &layers {
+                        qs_cmd(&qs_ipc, &entity.target, &entity.method);
+                    }
+                }
 
-            return Ok(());
+                return Ok(());
+            }
         }
     }
 
@@ -41,7 +55,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         if let Some(entity) = windows.iter().find(|w| w.title == title) {
             if let Some(pid) = resp.pid {
                 let qs_ipc = PathBuf::from(format!("{runtime}/quickshell/by-pid/{pid}/ipc.sock"));
-                qs_cmd(&qs_ipc, &entity.target, &entity.method)?;
+                qs_cmd(&qs_ipc, &entity.target, &entity.method);
             }
         } else {
             hypr_cmd(&hyprland_ipc, "dispatch hl.dsp.window.close()")?;

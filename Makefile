@@ -1,8 +1,8 @@
-# ml4w-killactive — dev shortcuts
+# killactive — dev shortcuts
 # Override destination: make install PREFIX=$HOME/.config/hypr/scripts
 
 PREFIX  ?= $(HOME)/.local/bin
-BIN     := ml4w-killactive
+BIN     := killactive
 RELEASE := target/release/$(BIN)
 
 .PHONY: build install uninstall bench test fmt lint clean help
