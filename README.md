@@ -33,6 +33,8 @@ Or build manually with `cargo build --release` (binary at `target/release/killac
 
 OR my fellow arch users can just use PKGBUILD, you know how ;)
 
+There's also an option to install a statically linked binary using `make install-static`. It requires the `x86_64-unknown-linux-musl` target, which you can add with `rustup target add x86_64-unknown-linux-musl`. It's around 2 times faster than the regular binary at ~0.5ms and is bigger by 100kb.
+
 ## Hyprland Keybind
 
 Add to `~/.config/hypr/conf/keybindings/custom.lua` so ML4W updates do not overwrite it (ensure ~/.local/bin is in your PATH if using make install):
